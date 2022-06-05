@@ -8,10 +8,44 @@
 template <typename T>
 using SDL_unique_ptr = std::unique_ptr<T, std::function<void(T *)>>;
 
+struct SpriteSheet
+{
+	std::shared_ptr<SDL_Texture> texture;
+	SDL_Point cell_size;
+
+	SDL_Rect get_rect(int row, int col)
+	{
+		return { col * cell_size.x, row * cell_size.y, cell_size.x, cell_size.y };
+	}
+};
+
+struct Sprite
+{
+	SpriteSheet sprite_sheet;
+	SDL_Point offset;
+
+	void render(SDL_Renderer * renderer, SDL_Point position, int scale)
+	{
+		SDL_Rect src = sprite_sheet.get_rect(offset.y, offset.x);
+		SDL_Rect dst = {
+			position.x - ((sprite_sheet.cell_size.x / 2) * scale),
+			position.y - ((sprite_sheet.cell_size.y / 2) * scale),
+			sprite_sheet.cell_size.x * scale,
+			sprite_sheet.cell_size.y * scale
+		};
+		SDL_RenderCopy(renderer, sprite_sheet.texture.get(), &src, &dst);
+	}
+};
 struct Actor
 {
-	SDL_unique_ptr<SDL_Texture> texture;
-	uint32_t x_position, y_position;
+	Sprite sprite;
+	SDL_Point position;
+	int scale;
+
+	void render(SDL_Renderer * renderer)
+	{
+		sprite.render(renderer, position, scale);
+	}
 };
 
 SDL_Rect index_into_texture(int col, int row, int w, int h, SDL_Surface * s)
@@ -45,20 +79,28 @@ int main(int argc, char **argv)
 		SDL_FreeSurface
 	};
 
-	SDL_unique_ptr<SDL_Texture> texture = {
-		SDL_CreateTextureFromSurface(renderer.get(), surface.get()),
-		SDL_DestroyTexture
-	};
+	SpriteSheet character_sheet;
+	character_sheet.texture = { SDL_CreateTextureFromSurface(renderer.get(), surface.get()),
+								SDL_DestroyTexture };
+	character_sheet.cell_size = { 32, 32 };
 
-	const int char_pixel_w = 32;
-	const int char_pixel_h = 32;
-	const int row = 0;
-	const int col = 0;
+	Sprite player_sprite;
+	player_sprite.sprite_sheet = character_sheet;
+	player_sprite.offset = { 0, 10 };
 
 	Actor player;
-	player.texture = std::move(texture);
-	player.x_position = (800/2);
-	player.y_position = (600/2);
+	player.sprite = player_sprite;
+	player.position = { 800/2, 600/2 };
+	player.scale = 3;
+
+	Sprite enemy_sprite;
+	enemy_sprite.sprite_sheet = character_sheet;
+	enemy_sprite.offset = { 0, 9 };
+	
+	Actor enemy;
+	enemy.sprite = enemy_sprite;
+	enemy.position = { 800/2, 600/2 + (32 * 3) };
+	enemy.scale = 3;
 
 	bool game_running = true;
 
@@ -76,26 +118,23 @@ int main(int argc, char **argv)
 
 			if (e.type == SDL_KEYDOWN)
 			{
-				if (e.key.keysym.sym == SDLK_w) player.y_position--;
-				if (e.key.keysym.sym == SDLK_a) player.x_position--;
-				if (e.key.keysym.sym == SDLK_s) player.y_position++;
-				if (e.key.keysym.sym == SDLK_d) player.x_position++;
+				if (e.key.keysym.sym == SDLK_w) player.position.y--;
+				if (e.key.keysym.sym == SDLK_a) player.position.x--;
+				if (e.key.keysym.sym == SDLK_s) player.position.y++;
+				if (e.key.keysym.sym == SDLK_d) player.position.x++;
 			}
 		}
 
 		
 		uint64_t ticks = SDL_GetTicks64();
 		uint64_t r = (ticks / 1000) % (surface->w / 32);
-		SDL_Rect src_rect = index_into_texture(r, 10, 32, 32, surface.get());
-
-		SDL_Rect dst_rect = {
-			player.x_position - (128 / 2),
-			player.y_position - (128 / 2),
-			128, 128
-		};
+		
+		player.sprite.offset.x = r;
+		enemy.sprite.offset.x = r;
 
 		SDL_RenderClear(renderer.get());
-		SDL_RenderCopy(renderer.get(), player.texture.get(), &src_rect, &dst_rect);
+		player.render(renderer.get());
+		enemy.render(renderer.get());
 		SDL_RenderPresent(renderer.get());
 	}
 
